@@ -9,7 +9,7 @@ const appUrl = clean(
 );
 
 export const publicInfo = {
-  instagramHandle: "@usefio.ofc",
+  instagramHandle: "@usefio.oficial",
   effectiveDate: "29 de setembro de 2026",
 };
 
