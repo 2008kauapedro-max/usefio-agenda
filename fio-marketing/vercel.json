@@ -1,0 +1,16 @@
+{
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.usefio.com.br" }],
+      "destination": "https://usefio.com.br/:path*",
+      "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!assets/|favicon.png|fio-logo.png|robots.txt|sitemap.xml).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

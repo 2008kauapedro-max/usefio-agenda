@@ -1,0 +1,8 @@
+import {chromium} from '@playwright/test';import fs from 'node:fs';import assert from 'node:assert/strict';
+const out='docs/reorganization-evidence',browser=await chromium.launch({channel:'msedge'}),page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.route('**/api/public/shop/**',r=>r.fulfill({json:{shop:{id:'00000000-0000-4000-8000-000000000001',name:'Studio 011',slug:'studio-011'}}}));
+try{for(const width of [360,390,430,1440])for(const [port,path,name] of [[4186,'/client?role=CLIENT','client-home'],[4186,'/owner/configuracoes?role=OWNER','owner-configuracoes'],[4187,'/platform/ai','platform-ai']]){
+ await page.setViewportSize({width,height:width>1000?1000:844});await page.goto(`http://127.0.0.1:${port}${path}`);await page.locator('h1,.pc-header').first().waitFor({state:'attached'});await page.waitForTimeout(500);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ if(name==='owner-configuracoes'){await page.getByRole('button',{name:'Meu perfil',exact:true}).click();await page.locator('.settings-back').click();assert.equal(await page.evaluate(()=>scrollY),0);}
+ await page.screenshot({path:`${out}/${name}-${width}.png`});
+}assert.deepEqual(errors,[]);fs.writeFileSync(`${out}/recapture-results.json`,JSON.stringify({checks:12,errors,scope:'Home compact, settings back scroll, platform without fixture banner'},null,2));console.log('PASS: 12 affected views recaptured');}catch(e){console.error(e.stack);process.exitCode=1;}finally{await Promise.race([browser.close(),new Promise(r=>setTimeout(r,4000))]);process.exit(process.exitCode??0);}

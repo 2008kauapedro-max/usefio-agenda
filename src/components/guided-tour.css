@@ -1,0 +1,20 @@
+.fio-tour-layer{position:fixed;inset:0;z-index:10000;pointer-events:auto}
+.fio-tour-shade{position:absolute;inset:0;width:100%;height:100%;pointer-events:auto}
+.fio-tour-card{position:absolute;width:min(360px,calc(100vw - 24px));max-height:min(44dvh,340px);overflow-y:auto;overscroll-behavior:contain;padding:16px 17px 14px;background:#171717;color:#fafafa;border:1px solid #555;border-radius:14px;box-shadow:0 12px 42px #0008;outline:none}
+.fio-tour-card small{font-size:10px;letter-spacing:.08em;color:#aaa}
+.fio-tour-card h2{font-size:19px;line-height:1.2;margin:8px 0}
+.fio-tour-card p{line-height:1.45;font-size:13px;color:#ddd;margin:0}
+.fio-tour-actions{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center;margin-top:13px}
+.fio-tour-actions>span{display:none}
+.fio-tour-card button{min-height:36px;font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid #555;background:#252525;color:white;white-space:nowrap}
+.fio-tour-card button:first-child{justify-self:start}
+.fio-tour-card button.primary{background:#f3f3f3;color:#151515}
+.fio-tour-card button:disabled{opacity:.45}
+.fio-tour-card button:focus-visible{outline:3px solid #80bfff;outline-offset:2px}
+@media(max-width:600px){
+ .fio-tour-card{padding:14px 14px 12px;border-radius:12px;max-height:min(44dvh,300px)}
+ .fio-tour-card h2{font-size:17px;margin:7px 0}
+ .fio-tour-card p{font-size:12px;line-height:1.4}
+ .fio-tour-actions{gap:5px;margin-top:11px}
+ .fio-tour-card button{min-height:34px;font-size:11px;padding:6px 8px}
+}

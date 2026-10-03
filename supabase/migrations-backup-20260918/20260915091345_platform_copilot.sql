@@ -1,0 +1,231 @@
+-- Platform copilot: additive, JWT-authorized and transactional. No remote setup.
+create table public.platform_alerts (
+ id uuid primary key default gen_random_uuid(), type text not null,
+ severity text not null check(severity in ('info','warning','critical')),
+ title text not null, description text not null,
+ barbershop_id uuid references public.barbershops(id), entity_type text, entity_id uuid,
+ dedup_key text not null unique, status text not null default 'open' check(status in ('open','resolved')),
+ metadata jsonb not null default '{}', created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+ resolved_at timestamptz, resolved_by uuid references auth.users(id)
+);
+create index platform_alerts_status on public.platform_alerts(status,severity,created_at desc);
+create table public.platform_ai_usage (
+ actor uuid not null references auth.users(id), day date not null default current_date,
+ requests integer not null default 0, minute_start timestamptz not null default now(), minute_count integer not null default 0,
+ primary key(actor,day)
+);
+create table fio_private.ai_proposals (
+ id uuid primary key default gen_random_uuid(), actor uuid not null references auth.users(id),
+ token uuid not null default gen_random_uuid(), action text not null check(action in ('suspend_shop','reactivate_shop','change_plan','resolve_alert')),
+ target uuid not null, params jsonb not null, snapshot jsonb not null,
+ created_at timestamptz not null default now(), expires_at timestamptz not null default now()+interval '10 minutes',
+ status text not null default 'pending' check(status in ('pending','executed','cancelled','refused'))
+);
+create table public.push_subscriptions (
+ id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id),
+ endpoint text not null unique check(length(endpoint)<=2048), keys jsonb not null,
+ critical boolean not null default true, warning boolean not null default false, info boolean not null default false,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table fio_private.push_deliveries (
+ alert_id uuid not null references public.platform_alerts(id), subscription_id uuid not null references public.push_subscriptions(id) on delete cascade,
+ status text not null default 'pending' check(status in ('pending','sending','sent','failed')),
+ attempts integer not null default 0, available_at timestamptz not null default now(), primary key(alert_id,subscription_id)
+);
+alter table public.platform_alerts enable row level security;
+alter table public.platform_ai_usage enable row level security;
+alter table public.push_subscriptions enable row level security;
+alter table fio_private.ai_proposals enable row level security;
+alter table fio_private.push_deliveries enable row level security;
+revoke all on public.platform_alerts,public.platform_ai_usage,public.push_subscriptions,fio_private.ai_proposals,fio_private.push_deliveries from public,anon,authenticated;
+grant select on public.platform_alerts,public.platform_ai_usage to authenticated;
+grant select,insert,update,delete on public.push_subscriptions to authenticated;
+create policy platform_alert_read on public.platform_alerts for select to authenticated using((select fio_private.is_platform_admin()));
+create policy platform_usage_read on public.platform_ai_usage for select to authenticated using((select fio_private.is_platform_admin()));
+create policy platform_push_own on public.push_subscriptions for all to authenticated
+ using(user_id=(select auth.uid()) and (select fio_private.is_platform_admin()))
+ with check(user_id=(select auth.uid()) and (select fio_private.is_platform_admin()));
+
+-- Log digests/classifications only. Never retain raw prompts, provider payloads or credentials.
+create function public.platform_ai_audit(p_event text,p_request uuid,p_detail text default '') returns void
+ language plpgsql security definer set search_path='' as $$
+begin
+ if not fio_private.is_platform_admin() then raise exception 'FORBIDDEN'; end if;
+ if p_event not in ('question','tool_success','tool_error','proposal_created','proposal_cancelled','proposal_confirmed','action_executed','action_refused','rate_limit','error','answer')
+ or p_detail is null or p_detail !~ '^[a-zA-Z0-9_.:-]{0,128}$' then raise exception 'INVALID_DATA' using errcode='22023'; end if;
+ insert into public.audit_events(actor_id,action,target_id,description,metadata)
+ values(auth.uid(),'platform.ai.'||p_event,p_request,'Platform AI: '||p_event,jsonb_build_object('detail',p_detail));
+end $$;
+create function public.consume_platform_ai_quota() returns boolean language plpgsql security definer set search_path='' as $$
+declare u public.platform_ai_usage; d date:=(now() at time zone 'UTC')::date;
+begin
+ if not fio_private.is_platform_admin() then raise exception 'FORBIDDEN'; end if;
+ insert into public.platform_ai_usage(actor,day) values(auth.uid(),d) on conflict do nothing;
+ select * into u from public.platform_ai_usage where actor=auth.uid() and day=d for update;
+ if u.requests>=200 or (u.minute_start>now()-interval '1 minute' and u.minute_count>=10) then
+  perform public.platform_ai_audit('rate_limit',gen_random_uuid(),'quota'); return false;
+ end if;
+ update public.platform_ai_usage set requests=requests+1,
+ minute_count=case when minute_start<=now()-interval '1 minute' then 1 else minute_count+1 end,
+ minute_start=case when minute_start<=now()-interval '1 minute' then now() else minute_start end
+ where actor=auth.uid() and day=d; return true;
+end $$;
+
+-- Proposals snapshot only the fields they will affect. No frontend values are accepted on execution.
+create function public.platform_ai_propose(p_action text,p_target uuid,p_plan uuid default null) returns jsonb
+ language plpgsql security definer set search_path='' as $$
+declare s public.barbershops; sub public.saas_subscriptions; a public.platform_alerts; p fio_private.ai_proposals; snap jsonb; label text;
+begin
+ if not fio_private.is_platform_admin() then raise exception 'FORBIDDEN'; end if;
+ if p_action is null or p_action not in ('suspend_shop','reactivate_shop','change_plan','resolve_alert') then raise exception 'FORBIDDEN'; end if;
+ perform pg_advisory_xact_lock(hashtextextended('proposal:'||auth.uid()::text,0));
+ if (select count(*) from fio_private.ai_proposals where actor=auth.uid() and status='pending' and expires_at>now())>=20 then raise exception 'RATE_LIMIT'; end if;
+ if p_action<>'change_plan' and p_plan is not null then raise exception 'INVALID_DATA' using errcode='22023'; end if;
+ if p_action='resolve_alert' then
+  select * into a from public.platform_alerts where id=p_target and status='open';
+  if not found then raise exception 'INVALID_DATA' using errcode='22023'; end if;
+  snap:=jsonb_build_object('status',a.status,'updated_at',a.updated_at); label:=a.title;
+ else
+  select * into s from public.barbershops where id=p_target;
+  select * into sub from public.saas_subscriptions where barbershop_id=p_target;
+  if s.id is null or sub.id is null then raise exception 'SHOP_NOT_FOUND'; end if;
+  if p_action='change_plan' and not exists(select 1 from public.saas_plans where id=p_plan and active) then raise exception 'INVALID_DATA' using errcode='22023'; end if;
+  snap:=jsonb_build_object('status',s.platform_status,'plan',sub.plan_id,'billing',sub.status,'end',sub.current_period_end,'name',s.name); label:=s.name;
+ end if;
+ insert into fio_private.ai_proposals(actor,action,target,params,snapshot) values(auth.uid(),p_action,p_target,jsonb_build_object('planId',p_plan),snap) returning * into p;
+ perform public.platform_ai_audit('proposal_created',p.id,p_action);
+ return jsonb_build_object('id',p.id,'token',p.token,'action',p.action,'target',p.target,'targetName',label,'planId',p_plan,'planName',(select name from public.saas_plans where id=p_plan),'expiresAt',p.expires_at);
+end $$;
+create function public.platform_ai_decide(p_id uuid,p_token uuid,p_confirm boolean) returns jsonb
+ language plpgsql security definer set search_path='' as $$
+declare p fio_private.ai_proposals; s public.barbershops; sub public.saas_subscriptions; a public.platform_alerts; snap jsonb;
+begin
+ if not fio_private.is_platform_admin() then raise exception 'FORBIDDEN'; end if;
+ select * into p from fio_private.ai_proposals where id=p_id for update;
+ if p.id is null or p.actor<>auth.uid() or p.token is distinct from p_token or p.status<>'pending' or p.expires_at<=now() or p_confirm is null then
+  perform public.platform_ai_audit('action_refused',p_id,'invalid_proposal'); return jsonb_build_object('ok',false,'code','INVALID_PROPOSAL');
+ end if;
+ if not p_confirm then
+  update fio_private.ai_proposals set status='cancelled' where id=p.id;
+  perform public.platform_ai_audit('proposal_cancelled',p.id,p.action); return jsonb_build_object('ok',true);
+ end if;
+ if p.action='resolve_alert' then
+  select * into a from public.platform_alerts where id=p.target for update;
+  snap:=jsonb_build_object('status',a.status,'updated_at',a.updated_at);
+ else
+  select * into s from public.barbershops where id=p.target for update;
+  select * into sub from public.saas_subscriptions where barbershop_id=p.target for update;
+  snap:=jsonb_build_object('status',s.platform_status,'plan',sub.plan_id,'billing',sub.status,'end',sub.current_period_end,'name',s.name);
+ end if;
+ if snap is distinct from p.snapshot then
+  update fio_private.ai_proposals set status='refused' where id=p.id;
+  perform public.platform_ai_audit('action_refused',p.id,'state_changed'); return jsonb_build_object('ok',false,'code','STATE_CHANGED');
+ end if;
+ perform public.platform_ai_audit('proposal_confirmed',p.id,p.action);
+ begin
+ if p.action='resolve_alert' then
+  update public.platform_alerts set status='resolved',resolved_at=now(),resolved_by=auth.uid(),updated_at=now() where id=p.target;
+ elsif p.action in ('suspend_shop','reactivate_shop','change_plan') then
+  perform fio_private.update_platform_shop(p.target,s.name,
+   case p.action when 'suspend_shop' then 'suspended' when 'reactivate_shop' then 'active' else s.platform_status end,
+   case when p.action='change_plan' then (p.params->>'planId')::uuid else sub.plan_id end,sub.status,sub.current_period_end,true);
+ else raise exception 'FORBIDDEN'; end if;
+ exception when others then
+  update fio_private.ai_proposals set status='refused' where id=p.id;
+  perform public.platform_ai_audit('action_refused',p.id,'execution_failed');
+  return jsonb_build_object('ok',false,'code','ACTION_REFUSED');
+ end;
+ update fio_private.ai_proposals set status='executed' where id=p.id;
+ perform public.platform_ai_audit('action_executed',p.id,p.action); return jsonb_build_object('ok',true);
+end $$;
+
+-- Deterministic events, no always-running AI. One open condition per shop/type.
+create function fio_private.platform_condition_alert() returns trigger language plpgsql security definer set search_path='' as $$
+declare shop uuid; kind text; is_problem boolean;
+begin
+ if tg_table_name='barbershops' then shop:=new.id; kind:='shop_suspended'; is_problem:=new.platform_status='suspended';
+ else shop:=new.barbershop_id; kind:='subscription_past_due'; is_problem:=new.status='past_due'; end if;
+ if is_problem then
+  insert into public.platform_alerts(type,severity,title,description,barbershop_id,entity_type,entity_id,dedup_key)
+  values(kind,'warning',case when kind='shop_suspended' then 'Barbearia suspensa' else 'Assinatura requer atenção' end,
+   'Revise o estado administrativo desta barbearia. Não representa pagamento confirmado.',shop,'barbershop',shop,kind||':'||shop)
+  on conflict(dedup_key) do update set status='open',updated_at=now(),resolved_at=null,resolved_by=null
+  where platform_alerts.status='resolved';
+ else
+  update public.platform_alerts set status='resolved',resolved_at=now(),resolved_by=auth.uid(),updated_at=now() where dedup_key=kind||':'||shop and status='open';
+ end if; return new;
+end $$;
+create trigger copilot_shop_alert after insert or update of platform_status on public.barbershops for each row execute function fio_private.platform_condition_alert();
+create trigger copilot_subscription_alert after insert or update of status on public.saas_subscriptions for each row execute function fio_private.platform_condition_alert();
+
+create function fio_private.queue_platform_push() returns trigger language plpgsql security definer set search_path='' as $$
+begin
+ if new.status='open' and (tg_op='INSERT' or old.status='resolved') then
+  insert into fio_private.push_deliveries(alert_id,subscription_id)
+  select new.id,s.id from public.push_subscriptions s join public.platform_admins a on a.user_id=s.user_id and a.active
+  where case new.severity when 'critical' then s.critical when 'warning' then s.warning else s.info end
+  on conflict do nothing;
+ end if; return new;
+end $$;
+create trigger copilot_push_queue after insert or update on public.platform_alerts for each row execute function fio_private.queue_platform_push();
+
+-- Only a trusted server dispatcher can obtain endpoints. SKIP LOCKED leases avoid parallel sends.
+create function public.platform_claim_push() returns jsonb language plpgsql security definer set search_path='' as $$
+declare result jsonb;
+begin
+ with picked as (
+  select d.alert_id,d.subscription_id from fio_private.push_deliveries d
+  join public.push_subscriptions s on s.id=d.subscription_id join public.platform_admins p on p.user_id=s.user_id and p.active
+  join public.platform_alerts a on a.id=d.alert_id and a.status='open'
+  where d.status in ('pending','failed','sending') and d.attempts<3 and d.available_at<=now()
+  and case a.severity when 'critical' then s.critical when 'warning' then s.warning else s.info end
+  order by d.available_at limit 20 for update of d skip locked
+ ), claimed as (
+  update fio_private.push_deliveries d set status='sending',attempts=attempts+1,available_at=now()+interval '2 minutes'
+  from picked p where d.alert_id=p.alert_id and d.subscription_id=p.subscription_id returning d.*
+ ) select coalesce(jsonb_agg(jsonb_build_object('alertId',c.alert_id,'subscriptionId',s.id,'endpoint',s.endpoint,'keys',s.keys)), '[]'::jsonb) into result
+ from claimed c join public.push_subscriptions s on s.id=c.subscription_id;
+ return result;
+end $$;
+create function public.platform_finish_push(p_alert uuid,p_subscription uuid,p_status text) returns void language plpgsql security definer set search_path='' as $$
+begin
+ if p_status='expired' then delete from public.push_subscriptions where id=p_subscription;
+ elsif p_status in ('sent','failed') then update fio_private.push_deliveries set status=p_status where alert_id=p_alert and subscription_id=p_subscription;
+ else raise exception 'INVALID_DATA' using errcode='22023'; end if;
+end $$;
+
+revoke all on function public.platform_ai_audit(text,uuid,text),public.consume_platform_ai_quota(),public.platform_ai_propose(text,uuid,uuid),public.platform_ai_decide(uuid,uuid,boolean),fio_private.platform_condition_alert(),fio_private.queue_platform_push(),public.platform_claim_push(),public.platform_finish_push(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.platform_ai_audit(text,uuid,text),public.consume_platform_ai_quota(),public.platform_ai_propose(text,uuid,uuid),public.platform_ai_decide(uuid,uuid,boolean) to authenticated;
+grant execute on function public.platform_claim_push(),public.platform_finish_push(uuid,uuid,text) to service_role;
+
+-- Bound device registrations independently of the API process.
+create function fio_private.limit_push_devices() returns trigger language plpgsql security definer set search_path='' as $$
+begin
+ perform pg_advisory_xact_lock(hashtextextended('push:'||new.user_id::text,0));
+ if not exists(select 1 from public.push_subscriptions where endpoint=new.endpoint and user_id=new.user_id)
+ and (select count(*) from public.push_subscriptions where user_id=new.user_id)>=5 then raise exception 'RATE_LIMIT'; end if;
+ return new;
+end $$;
+revoke all on function fio_private.limit_push_devices() from public,anon,authenticated;
+create trigger copilot_push_limit before insert on public.push_subscriptions for each row execute function fio_private.limit_push_devices();
+
+-- Repeated server-reported AI failures generate one critical alert per UTC day.
+create function fio_private.ai_failure_alert() returns trigger language plpgsql security definer set search_path='' as $$
+begin
+ if new.action='platform.ai.error' and (select count(*) from public.audit_events where action='platform.ai.error' and created_at>now()-interval '10 minutes')>=3 then
+  insert into public.platform_alerts(type,severity,title,description,entity_type,dedup_key)
+  values('ai_failures','critical','Falhas repetidas no copiloto','Três ou mais falhas em dez minutos. Confira a configuração e disponibilidade do provedor.','platform','ai_failures:'||(now() at time zone 'UTC')::date)
+  on conflict(dedup_key) do nothing;
+ end if; return new;
+end $$;
+revoke all on function fio_private.ai_failure_alert() from public,anon,authenticated;
+create trigger copilot_ai_failure after insert on public.audit_events for each row execute function fio_private.ai_failure_alert();
+create index copilot_ai_error_time on public.audit_events(created_at desc) where action='platform.ai.error';
+
+-- Seed known conditions without issuing push for historical events.
+insert into public.platform_alerts(type,severity,title,description,barbershop_id,entity_type,entity_id,dedup_key)
+ select 'shop_suspended','warning','Barbearia suspensa','Condição administrativa existente antes desta etapa.',id,'barbershop',id,'shop_suspended:'||id from public.barbershops where platform_status='suspended'
+ on conflict(dedup_key) do nothing;
+insert into public.platform_alerts(type,severity,title,description,barbershop_id,entity_type,entity_id,dedup_key)
+ select 'subscription_past_due','warning','Assinatura requer atenção','Condição administrativa existente. Não representa pagamento confirmado.',barbershop_id,'barbershop',barbershop_id,'subscription_past_due:'||barbershop_id from public.saas_subscriptions where status='past_due'
+ on conflict(dedup_key) do nothing;

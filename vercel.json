@@ -1,27 +1,84 @@
 {
-  "redirects": [
+  "rewrites": [
     {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "www.usefio.com.br" }],
-      "destination": "https://usefio.com.br/:path*",
-      "permanent": true
+      "source": "/api/:path*",
+      "destination": "/api/handler?route=:path*"
+    },
+    {
+      "source": "/owner/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/barber/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/client/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/reset-password",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/acesso/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/b/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/barbearia/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/platform/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/:slug([a-z0-9-]{3,60})",
+      "destination": "/index.html"
     }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+        }
       ]
-    }
-  ],
-  "rewrites": [
+    },
     {
-      "source": "/((?!assets/|favicon.png|fio-logo.png|robots.txt|sitemap.xml).*)",
-      "destination": "/index.html"
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     }
   ]
 }

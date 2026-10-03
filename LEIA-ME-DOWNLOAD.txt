@@ -1,0 +1,15 @@
+FIO - projeto com landing atualizada
+
+Extraia o ZIP mantendo todas as pastas juntas.
+Requer Node.js 22.12 ou superior.
+
+Na pasta principal: npm ci
+Na pasta fio-marketing: npm ci
+Na pasta fio-marketing: npm run dev
+
+A landing usa shared/fio-plans.ts e src/i18n/config.ts da pasta principal.
+Uma versão já compilada está em fio-marketing/dist.
+Detalhes da entrega e validações: fio-marketing/ENTREGA.md.
+
+Arquivos de ambiente privados, credenciais locais e node_modules não estão incluídos.
+Para executar o aplicativo completo, configure seu ambiente com base nos arquivos .example.

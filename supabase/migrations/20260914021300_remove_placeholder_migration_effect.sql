@@ -1,0 +1,1 @@
+-- No schema changes. This records that the earlier connectivity-check migration contained only a SQL comment.;

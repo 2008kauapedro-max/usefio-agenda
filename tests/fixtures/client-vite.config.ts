@@ -1,0 +1,3 @@
+import {defineConfig} from 'vite';
+import {resolve} from 'node:path';
+export default defineConfig({envDir:false,define:{'import.meta.env.VITE_SUPABASE_URL':JSON.stringify('https://fixture.supabase.co'),'import.meta.env.VITE_SUPABASE_ANON_KEY':JSON.stringify('public-fixture'),'import.meta.env.VITE_TURNSTILE_SITE_KEY':JSON.stringify('')},resolve:{alias:{'@supabase/supabase-js':resolve('tests/fixtures/client-auth-supabase.ts')}},server:{host:'127.0.0.1',port:4184,strictPort:true},plugins:[{name:'fixture-html',configureServer(server){server.middlewares.use((req,_res,next)=>{if(req.headers.accept?.includes('text/html'))req.url='/tests/fixtures/experience-preview.html';next();});}}]});
