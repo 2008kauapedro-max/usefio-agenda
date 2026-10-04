@@ -1214,3 +1214,116 @@ summary::-webkit-details-marker {
     transition: none !important;
   }
 }
+
+/* FIO SOLO + seletor Solo/Equipe — 2026-10-03 */
+.pricing-controls {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  max-width: 460px;
+}
+.audience-switch {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.audience-switch legend {
+  margin-bottom: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #67676b;
+}
+.audience-switch > div {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #c8c8c8;
+  border-radius: 7px;
+}
+.audience-switch label {
+  flex: 1;
+  position: relative;
+  cursor: pointer;
+}
+.audience-switch input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.audience-switch label > span {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 10px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  text-align: center;
+}
+.audience-switch .active > span {
+  background: #161618;
+  color: #fff;
+}
+.audience-switch input:focus-visible + span {
+  outline: 2px solid #55555a;
+  outline-offset: 2px;
+}
+.audience-plan-note {
+  display: grid;
+  gap: 7px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  background: rgba(255,255,255,.46);
+}
+.audience-plan-note strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.audience-plan-note p {
+  max-width: 720px;
+  font-size: 13px;
+  color: #626267;
+}
+.billing-switch {
+  max-width: 460px;
+}
+.billing-switch label > span {
+  padding-inline: 8px;
+}
+@media (max-width: 767px) {
+  .plans-grid.solo {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    max-width: none;
+  }
+}
+@media (min-width: 768px) and (max-width: 1049px) {
+  .plans-grid.solo {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+  }
+}
+@media (min-width: 1050px) {
+  .plans-grid.solo {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+  }
+}
+@media (min-width: 1050px) {
+  .pricing-controls {
+    width: 460px;
+    flex-shrink: 0;
+  }
+  .billing-switch {
+    max-width: none;
+  }
+}

@@ -696,3 +696,16 @@ export const features: Record<string, Translations> = {
     "Assistente FIO",
   ],
 };
+
+/* FIO_MVP_FINAL_20261004 */
+Object.assign(features, {
+  "Clientes sem limite": [
+    "Clientes sem limite","Unlimited clients","Clientes sin límite","Clients illimités","Unbegrenzte Kunden","Clienti illimitati"
+  ],
+  "Serviços sem limite": [
+    "Serviços sem limite","Unlimited services","Servicios sin límite","Services illimités","Unbegrenzte Leistungen","Servizi illimitati"
+  ],
+  "Pacotes de cortes sem limite": [
+    "Pacotes de cortes sem limite","Unlimited haircut packages","Paquetes de cortes sin límite","Forfaits coupe illimités","Unbegrenzte Haarschnitt-Pakete","Pacchetti taglio illimitati"
+  ],
+});
