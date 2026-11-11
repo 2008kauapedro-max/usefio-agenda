@@ -1,4 +1,6 @@
 export const cycles = ["monthly", "annual"] as const;
+// Venda anual pausada: troque para true para voltar a mostrar o seletor Mensal/Anual.
+export const ANNUAL_VISIBLE: boolean = false;
 export type Cycle = (typeof cycles)[number];
 export type MarketingPlanCode = "FREE" | "SOLO" | "SOLO_PREMIUM" | "PRO" | "PREMIUM";
 

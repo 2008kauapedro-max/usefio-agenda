@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check, Plus } from "lucide-react";
-import { cycles, plans, type Cycle } from "../data/plans";
+import { ANNUAL_VISIBLE, cycles, plans, type Cycle } from "../data/plans";
 import { links } from "../data/config";
 import { useMarketingI18n } from "../i18n";
 
@@ -127,7 +127,7 @@ const soloPremiumDescription: Record<string, string> = {
 };
 
 export function Pricing() {
-  const [cycle, setCycle] = useState<Cycle>("annual");
+  const [cycle, setCycle] = useState<Cycle>(ANNUAL_VISIBLE ? "annual" : "monthly");
   const [audience, setAudience] = useState<Audience>("solo");
   const { t, locale, translateFeature } = useMarketingI18n();
   const local = copy[locale] ?? copy["pt-BR"];
@@ -193,7 +193,7 @@ export function Pricing() {
               </div>
             </fieldset>
 
-            <fieldset className="billing-switch">
+            {ANNUAL_VISIBLE && <fieldset className="billing-switch">
               <legend className="sr-only">{t("billingPeriod")}</legend>
               {cycles.map((key) => (
                 <label className={cycle === key ? "active" : ""} key={key}>
@@ -210,7 +210,7 @@ export function Pricing() {
                   </span>
                 </label>
               ))}
-            </fieldset>
+            </fieldset>}
           </div>
         </div>
 
@@ -293,7 +293,7 @@ export function Pricing() {
 
         <div className="pricing-note">
           <p>{local.trial(trialPlan.name, trialPlan.trialDays ?? 14)}</p>
-          <span>{local.billingNote}</span>
+          {ANNUAL_VISIBLE && <span>{local.billingNote}</span>}
         </div>
       </div>
     </section>
